@@ -4,12 +4,12 @@ axios.get(config.urlBase + "verSession.php").then(response => {
     console.log("Session actual:", response.data.rol);
 
     applyTheme(tema);
-  })
+})
 
-  .catch(error => {
-    console.error("Error al obtener sesión:", error);
-});
-  
+    .catch(error => {
+        console.error("Error al obtener sesión:", error);
+    });
+
 function applyTheme(nombreTema) {
     const clase = nombreTema.endsWith("-theme") ? nombreTema : nombreTema + "-theme";
     document.body.classList.remove("light-theme", "dark-theme", "blue-theme", "green-theme", "preload-theme");
@@ -17,47 +17,56 @@ function applyTheme(nombreTema) {
 }
 
 function toggleSidebar() {
+    let body = document.body;
     let sidebar = document.getElementById("sidebar");
-    let content = document.getElementById("content");
-    if (sidebar.style.left === "0px") {
-        sidebar.style.left = "-250px";
-        // content.style.paddingLeft = "20px";
 
+    if (body.classList.contains("sidebar-open")) {
+        body.classList.remove("sidebar-open");
+        sidebar.style.left = "-250px";
     } else {
-    sidebar.style.left = "0px";
-    // content.style.marginLeft= "270px";
+        body.classList.add("sidebar-open");
+        sidebar.style.left = "0px";
     }
 }
 
-function loadPage(page) {
-    $("#content").load("pages/" + page, function () {
-        console.log("Página cargada:", page);
 
-        if (page === "users.html") {
-            loadUsers();
-        }
+const blocked = ["https://wit.la"];
+async function loadPage(page) {
+    const iframe = document.getElementById('external-content');
+    const localContent = document.getElementById('local-content');
 
-        if (page === "Pullman/index.html") {
-            console.log("Detectado Pullman/index.html");
+    // LOCAL
+    if (!/^(https?:)?\/\//.test(page)) {
+        iframe.style.display = 'none';
+        localContent.style.display = 'block';
+        $("#local-content").load("pages/" + page, function() {
+            if (page === "users.html") loadUsers();
+        });
+        return;
+    }
 
-            // Eliminamos si existe uno anterior
-            let oldScript = document.getElementById("pullman-script");
-            if (oldScript) {
-                oldScript.remove();
-            }
+    // EXTERNA
+    iframe.style.display = 'block';
+    localContent.style.display = 'none';
 
-            // Creamos uno nuevo
-            let script = document.createElement("script");
-            script.src = "assets/js/Pullman/main.js";
-            script.id = "pullman-script"; // le ponemos id para controlarlo mejor
-            document.body.appendChild(script);
-        }
-    });
+    if (blocked.some(domain => page.startsWith(domain))) {
+        console.warn("Redirigiendo...");
+        window.location.href = page;
+        return;
+    }
+
+    // Intentar cargar en iframe
+    iframe.style.display = 'block';
+    localContent.style.display = 'none';
+    iframe.src = page;
 }
 
 
+
+
+
 function logout() {
-    axios.post(config.urlBase+"logout.php", {}, { withCredentials: true })
+    axios.post(config.urlBase + "logout.php", {}, { withCredentials: true })
         .then(() => {
             window.location.href = "pages/login.html";
         });
@@ -65,45 +74,70 @@ function logout() {
 
 
 $(document).ready(function () {
-    axios.get(config.urlBase +"check_session.php", { withCredentials: true })
+    axios.get(config.urlBase + "check_session.php", { withCredentials: true })
         .then(response => {
             if (!response.data.loggedIn) {
-                window.location.href = "login.html"; // Redirige si no hay sesión
+                window.location.href = "pages/login.html"; // Redirige si no hay sesión
             } else {
                 let rol_id = response.data.rol_id;
                 let empresa = response.data.empresa || "Sin empresa asignada";
-            $("#empresas").text(empresa);
+                $("#empresas").text(empresa);
 
             }
         });
 
-        axios.get(config.urlBase+"get_menu.php", { withCredentials: true })
-    .then(response => {
-        if (response.data.error) {
-            console.log(response.data.error);
-            window.location.href = "./pages/login.html"; // Redirigir si no está logueado
-            return;
-        }
+    axios.get(config.urlBase + "get_menu.php", { withCredentials: true })
+        .then(response => {
+            if (response.data.error) {
+                console.log(response.data.error);
+                window.location.href = "pages/login.html";
+                return;
+            }
+
+            let navbar = $("#navbar-items");
+            let sidebar = $("#sidebar-items");
+
+            navbar.empty();
+            sidebar.empty();
 
 
+            // Función para generar items del menú
+            const generateMenuItem = (item) => {
+                if (item.external) {
+                    return `<a href="${item.url}" target="_blank" class="nav-link">
+                    ${item.nombre}
+                    </a>`;
+                } else {
+                    return `<a href="#" onclick="loadPage('${item.url.replace(/'/g, "\\'")}')" class="nav-link">
+                    ${item.nombre}
+                    </a>`;
+                }
+            };
 
-        let navbar = $("#navbar-items");
-        let sidebar = $("#sidebar-items");
+            // Navbar
+            response.data.navbar.forEach(item => {
+                navbar.append(`<li class="nav-item">${generateMenuItem(item)}</li>`);
+            });
 
-        navbar.empty();
-        sidebar.empty();
+            // Sidebar
+            response.data.sidebar.forEach(item => {
+                sidebar.append(`<li>${generateMenuItem(item)}</li>`);
+            });
 
-        response.data.navbar.forEach(item => {
-            navbar.append(`<li class="nav-item"><a class="nav-link" href="#" onclick="loadPage('${item.url}')">${item.nombre}</a></li>`);
+
+            $('head').append(`
+            <style>
+                a.external-link::after {
+                    content: " ↗";
+                    font-size: 0.8em;
+                    opacity: 0.7;
+                }
+            </style>
+        `);
+        })
+        .catch(error => {
+            console.error("Error al obtener menús:", error);
+            window.location.href = "pages/login.html";
         });
-
-        response.data.sidebar.forEach(item => {
-            sidebar.append(`<li><a href="#" onclick="loadPage('${item.url}')">${item.nombre}</a></li>`);
-        });
-    })
-    .catch(error => {
-        console.error("Error al obtener menús:", error);
-        window.location.href = "login.html";
-    });
 
 })
